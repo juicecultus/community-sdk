@@ -1,7 +1,12 @@
 #include "SDCardManager.h"
 
 namespace {
-constexpr uint8_t SD_CS = 12;
+constexpr uint8_t SD_CS =
+#if defined(ARDUINO_M5STACK_PAPERS3) || defined(ARDUINO_M5STACK_PaperS3) || defined(ARDUINO_M5STACK_PAPER_S3)
+    SS;
+#else
+    12;
+#endif
 constexpr uint32_t SPI_FQ = 40000000;
 }
 

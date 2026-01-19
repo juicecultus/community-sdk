@@ -126,6 +126,11 @@ EInkDisplay::EInkDisplay(int8_t sclk, int8_t mosi, int8_t cs, int8_t dc, int8_t 
 void EInkDisplay::begin() {
   Serial.printf("[%lu] EInkDisplay: begin() called\n", millis());
 
+  if (_sclk < 0 || _mosi < 0 || _cs < 0 || _dc < 0 || _rst < 0 || _busy < 0) {
+    Serial.printf("[%lu]   EInkDisplay: pins not configured; skipping hardware init\n", millis());
+    return;
+  }
+
   frameBuffer = frameBuffer0;
 #ifndef EINK_DISPLAY_SINGLE_BUFFER_MODE
   frameBufferActive = frameBuffer1;
