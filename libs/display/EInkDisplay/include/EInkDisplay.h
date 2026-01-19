@@ -2,6 +2,14 @@
 #include <Arduino.h>
 #include <SPI.h>
 
+#ifndef EINK_WIDTH
+#define EINK_WIDTH 800
+#endif
+
+#ifndef EINK_HEIGHT
+#define EINK_HEIGHT 480
+#endif
+
 class EInkDisplay {
  public:
   // Constructor with pin configuration
@@ -21,13 +29,8 @@ class EInkDisplay {
   void begin();
 
   // Display dimensions
-#if defined(EINK_WIDTH) && defined(EINK_HEIGHT)
   static constexpr uint16_t DISPLAY_WIDTH = EINK_WIDTH;
   static constexpr uint16_t DISPLAY_HEIGHT = EINK_HEIGHT;
-#else
-  static constexpr uint16_t DISPLAY_WIDTH = 800;
-  static constexpr uint16_t DISPLAY_HEIGHT = 480;
-#endif
   static constexpr uint16_t DISPLAY_WIDTH_BYTES = DISPLAY_WIDTH / 8;
   static constexpr uint32_t BUFFER_SIZE = DISPLAY_WIDTH_BYTES * DISPLAY_HEIGHT;
 

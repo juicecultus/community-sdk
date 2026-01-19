@@ -130,32 +130,6 @@ EInkDisplay::EInkDisplay(int8_t sclk, int8_t mosi, int8_t cs, int8_t dc, int8_t 
 void EInkDisplay::begin() {
   Serial.printf("[%lu] EInkDisplay: begin() called\n", millis());
 
-#ifdef USE_M5UNIFIED
-  frameBuffer = frameBuffer0;
-#ifndef EINK_DISPLAY_SINGLE_BUFFER_MODE
-  frameBufferActive = frameBuffer1;
-#endif
-
-  memset(frameBuffer0, 0xFF, BUFFER_SIZE);
-#ifndef EINK_DISPLAY_SINGLE_BUFFER_MODE
-  memset(frameBuffer1, 0xFF, BUFFER_SIZE);
-#endif
-
-  // Paper S3 EPD is driven by M5Unified/M5GFX (parallel bus). M5.begin() must be called by the app.
-  M5.Display.setAutoDisplay(false);
-  M5.Display.setRotation(1);
-  M5.Display.clearDisplay();
-  M5.Display.display();
-  isScreenOn = true;
-  Serial.printf("[%lu]   EInkDisplay: M5Unified backend initialized\n", millis());
-  return;
-#endif
-
-  if (_sclk < 0 || _mosi < 0 || _cs < 0 || _dc < 0 || _rst < 0 || _busy < 0) {
-    Serial.printf("[%lu]   EInkDisplay: pins not configured; skipping hardware init\n", millis());
-    return;
-  }
-
   frameBuffer = frameBuffer0;
 #ifndef EINK_DISPLAY_SINGLE_BUFFER_MODE
   frameBufferActive = frameBuffer1;
@@ -171,6 +145,19 @@ void EInkDisplay::begin() {
 #endif
 
   Serial.printf("[%lu]   Initializing e-ink display driver...\n", millis());
+
+#ifdef USE_M5UNIFIED
+  // Paper S3 backend: use M5Unified's display device. This bypasses the SSD1677 SPI driver.
+  // Note: main application is expected to call M5.begin() early, but we defensively call it here.
+  M5.begin();
+  // Ensure panel is in portrait orientation (w<h). This also affects touch coordinate space.
+  M5.Display.setRotation(0);
+  isScreenOn = true;
+  inGrayscaleMode = false;
+  customLutActive = false;
+  Serial.printf("[%lu]   Using USE_M5UNIFIED backend\n", millis());
+  return;
+#endif
 
   // Initialize SPI with custom pins
   SPI.begin(_sclk, -1, _mosi, _cs);
@@ -213,6 +200,10 @@ void EInkDisplay::resetDisplay() {
 }
 
 void EInkDisplay::sendCommand(uint8_t command) {
+#ifdef USE_M5UNIFIED
+  (void)command;
+  return;
+#endif
   SPI.beginTransaction(spiSettings);
   digitalWrite(_dc, LOW);  // Command mode
   digitalWrite(_cs, LOW);  // Select chip
@@ -222,6 +213,10 @@ void EInkDisplay::sendCommand(uint8_t command) {
 }
 
 void EInkDisplay::sendData(uint8_t data) {
+#ifdef USE_M5UNIFIED
+  (void)data;
+  return;
+#endif
   SPI.beginTransaction(spiSettings);
   digitalWrite(_dc, HIGH);  // Data mode
   digitalWrite(_cs, LOW);   // Select chip
@@ -231,6 +226,11 @@ void EInkDisplay::sendData(uint8_t data) {
 }
 
 void EInkDisplay::sendData(const uint8_t* data, uint16_t length) {
+#ifdef USE_M5UNIFIED
+  (void)data;
+  (void)length;
+  return;
+#endif
   SPI.beginTransaction(spiSettings);
   digitalWrite(_dc, HIGH);       // Data mode
   digitalWrite(_cs, LOW);        // Select chip
@@ -240,6 +240,9 @@ void EInkDisplay::sendData(const uint8_t* data, uint16_t length) {
 }
 
 void EInkDisplay::waitWhileBusy(const char* comment) {
+  if (_busy < 0) {
+    return;
+  }
   unsigned long start = millis();
   while (digitalRead(_busy) == HIGH) {
     delay(1);
@@ -336,15 +339,7 @@ void EInkDisplay::setRamArea(const uint16_t x, uint16_t y, uint16_t w, uint16_t 
 }
 
 void EInkDisplay::clearScreen(const uint8_t color) const {
-  if (frameBuffer) {
-    memset(frameBuffer, color, BUFFER_SIZE);
-  }
-
-#ifdef USE_M5UNIFIED
-  const uint16_t fill = (color == 0x00) ? 0x0000 : 0xFFFF;
-  M5.Display.fillScreen(fill);
-  M5.Display.display();
-#endif
+  memset(frameBuffer, color, BUFFER_SIZE);
 }
 
 void EInkDisplay::drawImage(const uint8_t* imageData, const uint16_t x, const uint16_t y, const uint16_t w, const uint16_t h,
@@ -406,6 +401,10 @@ void EInkDisplay::swapBuffers() {
 #endif
 
 void EInkDisplay::grayscaleRevert() {
+#ifdef USE_M5UNIFIED
+  inGrayscaleMode = false;
+  return;
+#endif
   if (!inGrayscaleMode) {
     return;
   }
@@ -419,16 +418,29 @@ void EInkDisplay::grayscaleRevert() {
 }
 
 void EInkDisplay::copyGrayscaleLsbBuffers(const uint8_t* lsbBuffer) {
+#ifdef USE_M5UNIFIED
+  (void)lsbBuffer;
+  return;
+#endif
   setRamArea(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT);
   writeRamBuffer(CMD_WRITE_RAM_BW, lsbBuffer, BUFFER_SIZE);
 }
 
 void EInkDisplay::copyGrayscaleMsbBuffers(const uint8_t* msbBuffer) {
+#ifdef USE_M5UNIFIED
+  (void)msbBuffer;
+  return;
+#endif
   setRamArea(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT);
   writeRamBuffer(CMD_WRITE_RAM_RED, msbBuffer, BUFFER_SIZE);
 }
 
 void EInkDisplay::copyGrayscaleBuffers(const uint8_t* lsbBuffer, const uint8_t* msbBuffer) {
+#ifdef USE_M5UNIFIED
+  (void)lsbBuffer;
+  (void)msbBuffer;
+  return;
+#endif
   setRamArea(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT);
   writeRamBuffer(CMD_WRITE_RAM_BW, lsbBuffer, BUFFER_SIZE);
   writeRamBuffer(CMD_WRITE_RAM_RED, msbBuffer, BUFFER_SIZE);
@@ -441,6 +453,10 @@ void EInkDisplay::copyGrayscaleBuffers(const uint8_t* lsbBuffer, const uint8_t* 
  * grayscale display.
  */
 void EInkDisplay::cleanupGrayscaleBuffers(const uint8_t* bwBuffer) {
+#ifdef USE_M5UNIFIED
+  (void)bwBuffer;
+  return;
+#endif
   setRamArea(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT);
   writeRamBuffer(CMD_WRITE_RAM_RED, bwBuffer, BUFFER_SIZE);
 }
@@ -449,27 +465,37 @@ void EInkDisplay::cleanupGrayscaleBuffers(const uint8_t* bwBuffer) {
 void EInkDisplay::displayBuffer(RefreshMode mode) {
 #ifdef USE_M5UNIFIED
   (void)mode;
-
   if (!frameBuffer) {
-    Serial.printf("[%lu]   ERROR: Frame buffer not allocated!\n", millis());
+    Serial.printf("[%lu] [EPD] !! No framebuffer in displayBuffer\n", millis());
     return;
   }
 
-  // Convert 1bpp framebuffer (1=white,0=black) to RGB565 and push line-by-line.
-  static uint16_t line[DISPLAY_WIDTH];
-  for (uint16_t y = 0; y < DISPLAY_HEIGHT; ++y) {
-    const uint32_t rowOffset = static_cast<uint32_t>(y) * DISPLAY_WIDTH_BYTES;
-    for (uint16_t x = 0; x < DISPLAY_WIDTH; ++x) {
-      const uint8_t b = frameBuffer[rowOffset + (x >> 3)];
-      const bool white = (b & (0x80 >> (x & 7))) != 0;
-      line[x] = white ? 0xFFFF : 0x0000;
-    }
-    M5.Display.pushImage(0, y, DISPLAY_WIDTH, 1, line);
+  // Convert 1-bit packed framebuffer into RGB565 scanlines and push to M5.Display.
+  // Framebuffer format: 1 bit per pixel, MSB first; 0 = black, 1 = white.
+  static std::vector<uint16_t> line;
+  if (line.size() != DISPLAY_WIDTH) {
+    line.assign(DISPLAY_WIDTH, 0xFFFF);
   }
-  M5.Display.display();
+
+  const uint16_t outW = std::min<uint16_t>(DISPLAY_WIDTH, M5.Display.width());
+  const uint16_t outH = std::min<uint16_t>(DISPLAY_HEIGHT, M5.Display.height());
+
+  M5.Display.setEpdMode(epd_quality);  // Full quality refresh for deep black text
+  M5.Display.startWrite();
+  for (uint16_t y = 0; y < outH; y++) {
+    const uint32_t rowOffset = static_cast<uint32_t>(y) * DISPLAY_WIDTH_BYTES;
+    for (uint16_t x = 0; x < outW; x++) {
+      const uint32_t byteIndex = rowOffset + (x >> 3);
+      const uint8_t bit = 7 - (x & 7);
+      const bool isWhite = (frameBuffer[byteIndex] >> bit) & 0x1;
+      line[x] = isWhite ? 0xFFFF : 0x0000;
+    }
+    M5.Display.pushImage(0, y, outW, 1, line.data());
+  }
+  M5.Display.endWrite();
+  M5.Display.display();  // Trigger EPD refresh
   return;
 #endif
-
   if (!isScreenOn) {
     // Force half refresh if screen is off
     mode = HALF_REFRESH;
@@ -517,6 +543,15 @@ void EInkDisplay::displayBuffer(RefreshMode mode) {
 // Displays only a rectangular region of the frame buffer, preserving the rest of the screen.
 // Requirements: x and w must be byte-aligned (multiples of 8 pixels)
 void EInkDisplay::displayWindow(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+#ifdef USE_M5UNIFIED
+  (void)x;
+  (void)y;
+  (void)w;
+  (void)h;
+  // M5 Paper S3: just do a full display refresh
+  displayBuffer(FAST_REFRESH);
+  return;
+#endif
   Serial.printf("[%lu]   Displaying window at (%d,%d) size (%dx%d)\n", millis(), x, y, w, h);
 
   // Validate bounds
@@ -590,6 +625,12 @@ void EInkDisplay::displayWindow(uint16_t x, uint16_t y, uint16_t w, uint16_t h) 
 }
 
 void EInkDisplay::displayGrayBuffer(const bool turnOffScreen) {
+#ifdef USE_M5UNIFIED
+  (void)turnOffScreen;
+  // M5 Paper S3: grayscale is handled by the BW display path.
+  // The grayscale buffers were no-ops, so just skip this.
+  return;
+#endif
   drawGrayscale = false;
   inGrayscaleMode = true;
 
@@ -600,6 +641,11 @@ void EInkDisplay::displayGrayBuffer(const bool turnOffScreen) {
 }
 
 void EInkDisplay::refreshDisplay(const RefreshMode mode, const bool turnOffScreen) {
+#ifdef USE_M5UNIFIED
+  (void)mode;
+  (void)turnOffScreen;
+  return;
+#endif
   // Configure Display Update Control 1
   sendCommand(CMD_DISPLAY_UPDATE_CTRL1);
   sendData((mode == FAST_REFRESH) ? CTRL1_NORMAL : CTRL1_BYPASS_RED);  // Configure buffer comparison mode
@@ -656,6 +702,11 @@ void EInkDisplay::refreshDisplay(const RefreshMode mode, const bool turnOffScree
 }
 
 void EInkDisplay::setCustomLUT(const bool enabled, const unsigned char* lutData) {
+#ifdef USE_M5UNIFIED
+  (void)enabled;
+  (void)lutData;
+  return;
+#endif
   if (enabled) {
     Serial.printf("[%lu]   Loading custom LUT...\n", millis());
 
@@ -686,6 +737,11 @@ void EInkDisplay::setCustomLUT(const bool enabled, const unsigned char* lutData)
 }
 
 void EInkDisplay::deepSleep() {
+#ifdef USE_M5UNIFIED
+  Serial.printf("[%lu]   M5 Paper S3: deep sleep handled by M5.Power\n", millis());
+  isScreenOn = false;
+  return;
+#endif
   Serial.printf("[%lu]   Preparing display for deep sleep...\n", millis());
 
   // First, power down the display properly
