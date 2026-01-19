@@ -28,10 +28,14 @@ InputManager::InputManager()
       buttonPressFinish(0) {}
 
 void InputManager::begin() {
+#ifndef USE_M5UNIFIED
+  // X4: Initialize ADC pins for button reading
   pinMode(BUTTON_ADC_PIN_1, INPUT);
   pinMode(BUTTON_ADC_PIN_2, INPUT);
   pinMode(POWER_BUTTON_PIN, INPUT_PULLUP);
   analogSetAttenuation(ADC_11db);
+#endif
+  // M5 Paper S3 doesn't have ADC buttons - only touch and power button via M5Unified
 }
 
 int InputManager::getButtonFromADC(const int adcValue, const int ranges[], const int numButtons) {
@@ -47,7 +51,8 @@ int InputManager::getButtonFromADC(const int adcValue, const int ranges[], const
 uint8_t InputManager::getState() {
   uint8_t state = 0;
 
-  // Read GPIO1 buttons
+#ifndef USE_M5UNIFIED
+  // X4: Read GPIO1 buttons
   const int adcValue1 = analogRead(BUTTON_ADC_PIN_1);
   const int button1 = getButtonFromADC(adcValue1, ADC_RANGES_1, NUM_BUTTONS_1);
   if (button1 >= 0) {
@@ -65,6 +70,8 @@ uint8_t InputManager::getState() {
   if (digitalRead(POWER_BUTTON_PIN) == LOW) {
     state |= (1 << BTN_POWER);
   }
+#endif
+  // M5 Paper S3: No ADC buttons, power button handled by M5Unified
 
   return state;
 }
