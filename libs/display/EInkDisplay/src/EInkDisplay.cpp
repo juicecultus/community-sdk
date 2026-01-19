@@ -4,6 +4,10 @@
 #include <fstream>
 #include <vector>
 
+#ifdef USE_M5UNIFIED
+#include <M5Unified.h>
+#endif
+
 // SSD1677 command definitions
 // Initialization and reset
 #define CMD_SOFT_RESET 0x12             // Soft reset
@@ -125,6 +129,27 @@ EInkDisplay::EInkDisplay(int8_t sclk, int8_t mosi, int8_t cs, int8_t dc, int8_t 
 
 void EInkDisplay::begin() {
   Serial.printf("[%lu] EInkDisplay: begin() called\n", millis());
+
+#ifdef USE_M5UNIFIED
+  frameBuffer = frameBuffer0;
+#ifndef EINK_DISPLAY_SINGLE_BUFFER_MODE
+  frameBufferActive = frameBuffer1;
+#endif
+
+  memset(frameBuffer0, 0xFF, BUFFER_SIZE);
+#ifndef EINK_DISPLAY_SINGLE_BUFFER_MODE
+  memset(frameBuffer1, 0xFF, BUFFER_SIZE);
+#endif
+
+  // Paper S3 EPD is driven by M5Unified/M5GFX (parallel bus). M5.begin() must be called by the app.
+  M5.Display.setAutoDisplay(false);
+  M5.Display.setRotation(1);
+  M5.Display.clearDisplay();
+  M5.Display.display();
+  isScreenOn = true;
+  Serial.printf("[%lu]   EInkDisplay: M5Unified backend initialized\n", millis());
+  return;
+#endif
 
   if (_sclk < 0 || _mosi < 0 || _cs < 0 || _dc < 0 || _rst < 0 || _busy < 0) {
     Serial.printf("[%lu]   EInkDisplay: pins not configured; skipping hardware init\n", millis());
@@ -311,7 +336,15 @@ void EInkDisplay::setRamArea(const uint16_t x, uint16_t y, uint16_t w, uint16_t 
 }
 
 void EInkDisplay::clearScreen(const uint8_t color) const {
-  memset(frameBuffer, color, BUFFER_SIZE);
+  if (frameBuffer) {
+    memset(frameBuffer, color, BUFFER_SIZE);
+  }
+
+#ifdef USE_M5UNIFIED
+  const uint16_t fill = (color == 0x00) ? 0x0000 : 0xFFFF;
+  M5.Display.fillScreen(fill);
+  M5.Display.display();
+#endif
 }
 
 void EInkDisplay::drawImage(const uint8_t* imageData, const uint16_t x, const uint16_t y, const uint16_t w, const uint16_t h,
@@ -414,6 +447,29 @@ void EInkDisplay::cleanupGrayscaleBuffers(const uint8_t* bwBuffer) {
 #endif
 
 void EInkDisplay::displayBuffer(RefreshMode mode) {
+#ifdef USE_M5UNIFIED
+  (void)mode;
+
+  if (!frameBuffer) {
+    Serial.printf("[%lu]   ERROR: Frame buffer not allocated!\n", millis());
+    return;
+  }
+
+  // Convert 1bpp framebuffer (1=white,0=black) to RGB565 and push line-by-line.
+  static uint16_t line[DISPLAY_WIDTH];
+  for (uint16_t y = 0; y < DISPLAY_HEIGHT; ++y) {
+    const uint32_t rowOffset = static_cast<uint32_t>(y) * DISPLAY_WIDTH_BYTES;
+    for (uint16_t x = 0; x < DISPLAY_WIDTH; ++x) {
+      const uint8_t b = frameBuffer[rowOffset + (x >> 3)];
+      const bool white = (b & (0x80 >> (x & 7))) != 0;
+      line[x] = white ? 0xFFFF : 0x0000;
+    }
+    M5.Display.pushImage(0, y, DISPLAY_WIDTH, 1, line);
+  }
+  M5.Display.display();
+  return;
+#endif
+
   if (!isScreenOn) {
     // Force half refresh if screen is off
     mode = HALF_REFRESH;
